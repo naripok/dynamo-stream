@@ -12,31 +12,19 @@ package:
 provider:
   name: aws
   runtime: python3.7
-  iamRoleStatements:
-    - Effect: Allow
-      Action:
-        - dynamodb:DescribeStream
-        - dynamodb:GetRecords
-        - dynamodb:GetShardIterator
-        - dynamodb:ListStreams
-      Resource:
-        Fn::GetAtt: [Table, StreamArn]
-    - Effect: Allow
-      Action:
-        - dynamodb:PutItem
-      Resource:
-        Fn::GetAtt: [Table, Arn]
 
 
 functions:
   handler:
     handler: handler.handler
+    role: NotificationExecutionRole
     events:
       - stream:
         Fn::GetAtt: [ Table, StreamArn ]
 
   put-event:
     handler: put_event.handler
+    role: PutItemExecutionRole
 
 
 resources:
@@ -67,3 +55,97 @@ resources:
         FunctionName:
           Fn::GetAtt: [HandlerLambdaFunction, Arn]
         StartingPosition: LATEST #always start at the tail of the stream
+
+    NotificationExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        Path: '/'
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyDocument:
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - dynamodb:DescribeStream
+                    - dynamodb:GetRecords
+                    - dynamodb:GetShardIterator
+                    - dynamodb:ListStreams
+                  Resource:
+                    Fn::GetAtt: [Table, StreamArn]
+              Version: '2012-10-17'
+            PolicyName: Allow-Read-Table-Stream
+#
+#    This does not work, serverless bug
+#
+#    AllowReadTableStream:
+#      Type: AWS::IAM::Policy
+#      Properties:
+#        PolicyName: 'Allow-Read-Table-Stream'
+#        PolicyDocument:
+#          Version: '2012-10-17'
+#          Statement:
+#          - Effect: Allow
+#            Action:
+#              - dynamodb:DescribeStream
+#              - dynamodb:GetRecords
+#              - dynamodb:GetShardIterator
+#              - dynamodb:ListStreams
+#            Resource:
+#              Fn::GetAtt: [Table, StreamArn]
+#        Roles:
+#          - Ref: NotificationExecutionRole
+
+    PutItemExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        Path: '/'
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action:
+                - sts:AssumeRole
+
+    AllowPutItem:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: 'Allow-Put-Item'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+              Resource:
+                Fn::GetAtt: [Table, Arn]
+        Roles:
+          - Ref: PutItemExecutionRole
+
+    AllowLoggingCWL:
+      Type: AWS::IAM::Policy
+      Properties:
+        PolicyName: 'Allow-Logging-CWL'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+                - logs:DescribeLogStreams
+              Resource: arn:aws:logs:*:*:log-group:/aws/lambda/dynamo-stream-${self:provider.stage}-*
+        Roles:
+          - Ref: PutItemExecutionRole
+          - Ref: NotificationExecutionRole
