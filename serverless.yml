@@ -1,0 +1,69 @@
+service: dynamo-stream # NOTE: update this with your service name
+
+
+package:
+  exclude:
+    - ./**
+  include:
+    - handler.py
+    - put_event.py
+
+
+provider:
+  name: aws
+  runtime: python3.7
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - dynamodb:DescribeStream
+        - dynamodb:GetRecords
+        - dynamodb:GetShardIterator
+        - dynamodb:ListStreams
+      Resource:
+        Fn::GetAtt: [Table, StreamArn]
+    - Effect: Allow
+      Action:
+        - dynamodb:PutItem
+      Resource:
+        Fn::GetAtt: [Table, Arn]
+
+
+functions:
+  handler:
+    handler: handler.handler
+    events:
+      - stream:
+        Fn::GetAtt: [ Table, StreamArn ]
+
+  put-event:
+    handler: put_event.handler
+
+
+resources:
+  Resources:
+    Table:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: StreamTable
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
+        ProvisionedThroughput:
+          ReadCapacityUnits: 1
+          WriteCapacityUnits: 1
+
+    TableStream:
+      Type: AWS::Lambda::EventSourceMapping
+      Properties:
+        BatchSize: 1 #trigger one lambda per document
+        Enabled: True
+        EventSourceArn:
+          Fn::GetAtt: [Table, StreamArn]
+        FunctionName:
+          Fn::GetAtt: [HandlerLambdaFunction, Arn]
+        StartingPosition: LATEST #always start at the tail of the stream
